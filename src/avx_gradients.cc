@@ -225,7 +225,7 @@ bool approx_equal(const float *v1, const float *v2, size_t n,
   return true;
 }
 
-void main() {
+int main() {
   size_t n = 1 << 24;
   // size_t n = 16;
   auto tolerance = 1e-4;
@@ -283,4 +283,5 @@ void main() {
       std::cout << "Correct mse gradients!\n";
     }
   }
+  return 0;
 }

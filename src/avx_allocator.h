@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 
 enum class Alignment : size_t {
   Normal = sizeof(void*),
@@ -146,7 +147,7 @@ class AlignedAllocator<const T, Align> {
   pointer allocate(size_type n,
                    typename AlignedAllocator<void, Align>::const_pointer = 0) {
     const size_type alignment = static_cast<size_type>(Align);
-    void* ptr = aligned_alloc(alignment, n * sizeof(T), );
+    void* ptr = detail::allocate_aligned_memory(alignment, n * sizeof(T));
     if (ptr == nullptr) {
       throw std::bad_alloc();
     }
