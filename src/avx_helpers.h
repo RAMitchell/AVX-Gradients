@@ -1,16 +1,13 @@
 #pragma once
 #include <cstddef>
 
+namespace avx {
+
 enum class Alignment : size_t {
   Normal = sizeof(void*),
   SSE = 16,
   AVX = 32,
 };
-
-bool is_aligned(void *p, int N)
-{
-  return (size_t)p % N == 0;
-}
 
 namespace detail {
 void* allocate_aligned_memory(size_t align, size_t size) {
@@ -178,3 +175,57 @@ inline bool operator!=(const AlignedAllocator<T, TAlign>&,
                        const AlignedAllocator<U, UAlign>&) noexcept {
   return TAlign != UAlign;
 }
+
+#ifdef __GNUC__
+#define ALIGN(x) x __attribute__((aligned(32)))
+#elif defined(_MSC_VER)
+#define ALIGN(x) __declspec(align(32))
+#endif
+
+struct Float8 {
+  __m256 x;
+  explicit Float8(const __m256& x) : x(x) {}
+  explicit Float8(const float& val)
+    :x(_mm256_broadcast_ss(&val)){}
+  explicit Float8(const float* vec) : x(_mm256_load_ps(vec)) {}
+  Float8() : x() {}
+  Float8& operator+=(const Float8& rhs) {
+    x = _mm256_add_ps(x, rhs.x);
+    return *this;
+  }
+  Float8& operator-=(const Float8& rhs) {
+    x = _mm256_sub_ps(x, rhs.x);
+    return *this;
+  }
+  Float8& operator*=(const Float8& rhs) {
+    x = _mm256_mul_ps(x, rhs.x);
+    return *this;
+  }
+  Float8& operator/=(const Float8& rhs) {
+    x = _mm256_div_ps(x, rhs.x);
+    return *this;
+  }
+  void Print() { 
+    float* f = (float*)&x;
+    printf("%f %f %f %f %f %f %f %f\n", f[0], f[1], f[2], f[3], f[4], f[5],
+           f[6], f[7]);
+  }
+};
+
+inline Float8 operator+(Float8 lhs, const Float8& rhs) {
+  lhs += rhs;
+  return lhs;
+}
+inline Float8 operator-(Float8 lhs, const Float8& rhs) {
+  lhs -= rhs;
+  return lhs;
+}
+inline Float8 operator*(Float8 lhs, const Float8& rhs) {
+  lhs *= rhs;
+  return lhs;
+}
+inline Float8 operator/(Float8 lhs, const Float8& rhs) {
+  lhs /= rhs;
+  return lhs;
+}
+}  // namespace avx
