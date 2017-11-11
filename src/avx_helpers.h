@@ -187,7 +187,7 @@ struct Float8 {
   explicit Float8(const __m256& x) : x(x) {}
   explicit Float8(const float& val)
     :x(_mm256_broadcast_ss(&val)){}
-  explicit Float8(const float* vec) : x(_mm256_load_ps(vec)) {}
+  explicit Float8(const float* vec) : x(_mm256_loadu_ps(vec)) {}
   Float8() : x() {}
   Float8& operator+=(const Float8& rhs) {
     x = _mm256_add_ps(x, rhs.x);

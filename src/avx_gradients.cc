@@ -74,8 +74,10 @@ void StoreGpair(bst_gpair *dst, const avx::Float8 &grad, const avx::Float8 &hess
   float *ptr = reinterpret_cast<float *>(dst);
   __m256 gpair_low = _mm256_unpacklo_ps(grad.x, hess.x);
   __m256 gpair_high = _mm256_unpackhi_ps(grad.x, hess.x);
-  _mm256_store_ps(ptr, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x20));
-  _mm256_store_ps(ptr + 8, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x31));
+  //_mm256_storeu_ps(ptr, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x20));
+  //_mm256_storeu_ps(ptr + 8, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x31));
+  _mm256_stream_ps(ptr, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x20));
+  _mm256_stream_ps(ptr + 8, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x31));
 }
 
 // https://codingforspeed.com/using-faster-exponential-approximation/
