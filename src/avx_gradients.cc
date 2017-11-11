@@ -135,7 +135,7 @@ void BinaryLogisticGradientsAVX(
   }
 
   // Process remainder
-  for (size_t i = 8 * (n / 8); i < n; i++) {
+  for (size_t i = n-  remainder; i < n; i++) {
     float y = labels[i];
     float p = LogisticRegression::PredTransform(preds[i]);
     float w = weights[i];
@@ -154,7 +154,8 @@ void MSEGradientsAVX(
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> *out_gpair) {
   size_t n = preds.size();
   auto gpair_ptr = out_gpair->data();
-  for (size_t i = 0; i < n; i += 8) {
+  const size_t remainder = n % 8;
+  for (size_t i = 0; i < n - remainder; i += 8) {
     avx::Float8 y(&labels[i]);
     avx::Float8 p(&preds[i]);
     avx::Float8 w(&weights[i]);
@@ -164,7 +165,7 @@ void MSEGradientsAVX(
     StoreGpair(gpair_ptr + i, grad, hess);
   }
 
-  for (size_t i = 8 * (n / 8); i < n; i++) {
+  for (size_t i = n-remainder; i < n; i++) {
     float y = labels[i];
     float p = preds[i];
     float w = weights[i];
@@ -180,7 +181,8 @@ void MSEGradients(
     const std::vector<float, avx::AlignedAllocator<float>> &weights,
     float scale_pos_weight,
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> *out_gpair) {
-  for (size_t i = 0; i < out_gpair->size(); i++) {
+  size_t n = out_gpair->size();
+  for (size_t i = 0; i < n; i++) {
     float y = labels[i];
     float p = preds[i];
     float w = weights[i];
@@ -215,13 +217,13 @@ bool approx_equal(const float *v1, const float *v2, size_t n,
 
 int main() {
   size_t n = 1 << 24;
-  // size_t n = 8;
-  auto tolerance = 1e-4;
+   //size_t n = 13;
+  auto tolerance = 1e-3;
   auto preds = RandomVector(n, -10, 10);
   auto labels = RandomVector(n);
   auto weights = RandomVector(n, 0.5, 5);
-  // auto weights = std::vector<float,avx::AlignedAllocator<float > >(n, 1.0);
-  for (int i = 0; i < 1; i++) {
+   //auto weights = std::vector<float,avx::AlignedAllocator<float > >(n, 1.0);
+  for (int i = 0; i < 2; i++) {
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> binary_gpair(n);
     Timer t;
     t.Start();

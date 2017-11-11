@@ -10,7 +10,7 @@ enum class Alignment : size_t {
 };
 
 namespace detail {
-void* allocate_aligned_memory(size_t align, size_t size) {
+inline void* allocate_aligned_memory(size_t align, size_t size) {
   if (size == 0) {
     return nullptr;
   }
@@ -27,7 +27,7 @@ void* allocate_aligned_memory(size_t align, size_t size) {
 
   return ptr;
 }
-void deallocate_aligned_memory(void* ptr) noexcept {
+inline void deallocate_aligned_memory(void* ptr) noexcept {
 #ifdef _MSC_VER
   _aligned_free(ptr);
 #else
