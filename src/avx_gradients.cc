@@ -1,4 +1,5 @@
 #include <immintrin.h>
+#include <omp.h>
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -57,7 +58,8 @@ void BinaryLogisticGradients(
     const std::vector<float, avx::AlignedAllocator<float>> &weights,
     float scale_pos_weight,
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> *out_gpair) {
-  for (size_t i = 0; i < out_gpair->size(); i++) {
+#pragma omp parallel for schedule(static)
+  for (int i = 0; i < out_gpair->size(); i++) {
     float y = labels[i];
     float p = LogisticRegression::PredTransform(preds[i]);
     float w = weights[i];
@@ -68,16 +70,15 @@ void BinaryLogisticGradients(
   }
 }
 
-//typedef __m256 Float8;
 // Store 8 gradient pairs given vectors containing gradient and Hessian
-void StoreGpair(bst_gpair *dst, const avx::Float8 &grad, const avx::Float8 &hess) {
+void StoreGpair(bst_gpair *dst, const avx::Float8 &grad,
+                const avx::Float8 &hess) {
   float *ptr = reinterpret_cast<float *>(dst);
   __m256 gpair_low = _mm256_unpacklo_ps(grad.x, hess.x);
   __m256 gpair_high = _mm256_unpackhi_ps(grad.x, hess.x);
-  //_mm256_storeu_ps(ptr, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x20));
-  //_mm256_storeu_ps(ptr + 8, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x31));
-  _mm256_stream_ps(ptr, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x20));
-  _mm256_stream_ps(ptr + 8, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x31));
+  _mm256_storeu_ps(ptr, _mm256_permute2f128_ps(gpair_low, gpair_high, 0x20));
+  _mm256_storeu_ps(ptr + 8,
+                   _mm256_permute2f128_ps(gpair_low, gpair_high, 0x31));
 }
 
 // https://codingforspeed.com/using-faster-exponential-approximation/
@@ -114,15 +115,15 @@ void BinaryLogisticGradientsAVX(
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> *out_gpair) {
   const size_t n = preds.size();
   auto gpair_ptr = out_gpair->data();
-  std::vector<float, avx::AlignedAllocator<float>> scale_pos_vec(
-      8, scale_pos_weight);
   avx::Float8 scale(scale_pos_weight);
 
   const size_t remainder = n % 8;
-  for (size_t i = 0; i < n - remainder; i += 8) {
+#pragma omp parallel for schedule(static)
+  for (int i = 0; i < n - remainder; i += 8) {
     avx::Float8 y(&labels[i]);
     avx::Float8 p(&preds[i]);
-    avx::Float8 w(&weights[i]);
+    avx::Float8 w =
+        weights.empty() ? avx::Float8(1.0f) : avx::Float8(&weights[i]);
     // Adjust weight
     w += y * (scale * w - w);
 
@@ -137,7 +138,7 @@ void BinaryLogisticGradientsAVX(
   }
 
   // Process remainder
-  for (size_t i = n-  remainder; i < n; i++) {
+  for (size_t i = n - remainder; i < n; i++) {
     float y = labels[i];
     float p = LogisticRegression::PredTransform(preds[i]);
     float w = weights[i];
@@ -157,17 +158,18 @@ void MSEGradientsAVX(
   size_t n = preds.size();
   auto gpair_ptr = out_gpair->data();
   const size_t remainder = n % 8;
-  for (size_t i = 0; i < n - remainder; i += 8) {
+#pragma omp parallel for schedule(static)
+  for (int i = 0; i < n - remainder; i += 8) {
     avx::Float8 y(&labels[i]);
     avx::Float8 p(&preds[i]);
     avx::Float8 w(&weights[i]);
-    avx::Float8 grad = p- y;
+    avx::Float8 grad = p - y;
     grad *= w;
     avx::Float8 hess = w;
     StoreGpair(gpair_ptr + i, grad, hess);
   }
 
-  for (size_t i = n-remainder; i < n; i++) {
+  for (size_t i = n - remainder; i < n; i++) {
     float y = labels[i];
     float p = preds[i];
     float w = weights[i];
@@ -184,7 +186,8 @@ void MSEGradients(
     float scale_pos_weight,
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> *out_gpair) {
   size_t n = out_gpair->size();
-  for (size_t i = 0; i < n; i++) {
+#pragma omp parallel for schedule(static)
+  for (int i = 0; i < n; i++) {
     float y = labels[i];
     float p = preds[i];
     float w = weights[i];
@@ -217,15 +220,22 @@ bool approx_equal(const float *v1, const float *v2, size_t n,
   return true;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+  if (argc > 1) {
+    int nthreads = atoi(argv[1]);
+    omp_set_num_threads(nthreads);
+  }
+
+  printf("nthreads: %d\n", omp_get_max_threads());
+
   size_t n = 1 << 24;
-   //size_t n = 13;
+  // size_t n = 13;
   auto tolerance = 1e-3;
   auto preds = RandomVector(n, -10, 10);
   auto labels = RandomVector(n);
   auto weights = RandomVector(n, 0.5, 5);
-   //auto weights = std::vector<float,avx::AlignedAllocator<float > >(n, 1.0);
-  for (int i = 0; i < 2; i++) {
+  // auto weights = std::vector<float,avx::AlignedAllocator<float > >(n, 1.0);
+  for (int i = 0; i < 1; i++) {
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> binary_gpair(n);
     Timer t;
     t.Start();
@@ -276,5 +286,6 @@ int main() {
       std::cout << "Correct mse gradients!\n";
     }
   }
+  printf("nthreads: %d\n", omp_get_num_threads());
   return 0;
 }
