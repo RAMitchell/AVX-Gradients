@@ -149,6 +149,59 @@ void BinaryLogisticGradientsAVX(
   }
 }
 
+void BinaryLogisticGradientsAVXNUMA(
+    const std::vector<float, avx::AlignedAllocator<float>> &preds,
+    const std::vector<float, avx::AlignedAllocator<float>> &labels,
+    const std::vector<float, avx::AlignedAllocator<float>> &weights,
+    const float scale_pos_weight,
+    std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> *out_gpair) {
+  const size_t n = preds.size();
+  auto gpair_ptr = out_gpair->data();
+  avx::Float8 scale(scale_pos_weight);
+
+  int nthread = omp_get_max_threads();
+  const size_t remainder = n % 8;
+  const int ngroups = 4;
+  const int npergroup = omp_get_max_threads()/ngroups;
+  omp_set_nested(1);
+#pragma omp parallel for num_threads(ngroups)
+  for (int group = 0; group < ngroups; group++) {
+    int start = (n*group + (ngroups - 1)) / ngroups;
+    int end = (n*(group + 1) + (ngroups - 1)) / ngroups;
+#pragma omp parallel for num_threads(npergroup) shared(start, end)
+    for (int i = start; i < end; i += 8) {
+      avx::Float8 y(&labels[i]);
+      avx::Float8 p(&preds[i]);
+      avx::Float8 w =
+        weights.empty() ? avx::Float8(1.0f) : avx::Float8(&weights[i]);
+      // Adjust weight
+      w += y * (scale * w - w);
+
+      avx::Float8 p_transformed = ApproximateSigmoid(p);
+      avx::Float8 grad = p_transformed - y;
+      grad *= w;
+      avx::Float8 hess = (avx::Float8(1.0f) - p_transformed) * p_transformed;
+      hess *= w;
+      hess.x = _mm256_max_ps(hess.x, _mm256_set1_ps(1e-16f));
+
+      StoreGpair(gpair_ptr + i, grad, hess);
+    }
+  }
+
+  // Process remainder
+  for (size_t i = n - remainder; i < n; i++) {
+    float y = labels[i];
+    float p = LogisticRegression::PredTransform(preds[i]);
+    float w = weights[i];
+    w += y * (scale_pos_weight * w - w);
+    (*out_gpair)[i] =
+        bst_gpair(LogisticRegression::FirstOrderGradient(p, y) * w,
+                  LogisticRegression::SecondOrderGradient(p, y) * w);
+  }
+
+  omp_set_num_threads(nthread);
+}
+
 void MSEGradientsAVX(
     const std::vector<float, avx::AlignedAllocator<float>> &preds,
     const std::vector<float, avx::AlignedAllocator<float>> &labels,
@@ -264,6 +317,23 @@ int main(int argc, char *argv[]) {
       std::cout << "Correct binary gradients!\n";
     }
 
+    std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> binary_gpair_avx_numa(
+        n);
+    t.Reset();
+    t.Start();
+    BinaryLogisticGradientsAVXNUMA(preds, labels, weights, 1.0, &binary_gpair_avx_numa);
+    t.Stop();
+    t.PrintElapsed("BinaryLogisticGradientsAVXNUMA");
+    t.Reset();
+    if (!approx_equal(reinterpret_cast<float *>(binary_gpair.data()),
+                      reinterpret_cast<float *>(binary_gpair_avx_numa.data()), n,
+                      tolerance)) {
+      std::cout << "Incorrect NUMA binary gradients!\n";
+      
+    } else {
+      std::cout << "Correct NUMA binary gradients!\n";
+    }
+
     std::vector<bst_gpair, avx::AlignedAllocator<bst_gpair>> mse_gpair(n);
     t.Start();
     MSEGradients(preds, labels, weights, 1.0, &mse_gpair);
@@ -286,6 +356,5 @@ int main(int argc, char *argv[]) {
       std::cout << "Correct mse gradients!\n";
     }
   }
-  printf("nthreads: %d\n", omp_get_num_threads());
   return 0;
 }
